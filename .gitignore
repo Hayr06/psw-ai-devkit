@@ -1,0 +1,42 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.nupkg
+packages/
+*.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test
+TestResults/
+coverage/
+*.trx
+*.coverage
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# OpenCode (no commits de sesiones)
+.session/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Logs
+logs/
+*.log

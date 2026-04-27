@@ -1,0 +1,108 @@
+# Docker Compose - Microservices Development Environment
+
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/[ServiceName].API.Gateway/Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DOTNET_DASHBOARD_https_port=5000
+    depends_on:
+      - identity-service
+      - catalog-service
+      - order-service
+    networks:
+      - microservices
+
+  # Identity Service
+  identity-service:
+    build:
+      context: .
+      dockerfile: src/[ServiceName].Services.Identity/src/[ServiceName].Services.Identity.API/Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=IdentityDb;User=sa;Password=YourPassword
+      - DAPR_HTTP_PORT=3601
+      - DAPR_GRPC_PORT=60001
+    depends_on:
+      - sqlserver
+    networks:
+      - microservices
+
+  # Catalog Service
+  catalog-service:
+    build:
+      context: .
+      dockerfile: src/[ServiceName].Services.Catalog/src/[ServiceName].Services.Catalog.API/Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=CatalogDb;User=sa;Password=YourPassword
+      - DAPR_HTTP_PORT=3602
+      - DAPR_GRPC_PORT=60002
+    depends_on:
+      - sqlserver
+    networks:
+      - microservices
+
+  # Order Service
+  order-service:
+    build:
+      context: .
+      dockerfile: src/[ServiceName].Services.Order/src/[ServiceName].Services.Order.API/Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=OrderDb;User=sa;Password=YourPassword
+      - DAPR_HTTP_PORT=3603
+      - DAPR_GRPC_PORT=60003
+    depends_on:
+      - sqlserver
+      - redis
+    networks:
+      - microservices
+
+  # SQL Server
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourPassword123
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - microservices
+
+  # Redis (for caching/state)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - microservices
+
+  # Dapr Sidecar (para cada servicio)
+  # Los servicios usan Dapr SDK, no containers separados
+
+volumes:
+  sqlserver_data:
+  redis_data:
+
+networks:
+  microservices:
+    driver: bridge
