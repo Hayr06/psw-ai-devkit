@@ -60,10 +60,10 @@ El orchestrator leera automaticamente el contexto empresarial y estara listo par
 | `@qa-specialist` | Testing, coverage, calidad |
 | `@security-specialist` | JWT, secrets, OWASP |
 
-### Skills (50+)
+### Skills (55+)
 
-- **dotnet/**: 40+ skills técnicos (.NET 9/10, Blazor, DDD, EF Core, Dapr, etc.)
-- **methodology/**: 15 skills Superpowers (TDD, brainstorming, etc.)
+- **dotnet/**: 45+ skills técnicos (.NET 9/10, Blazor, DDD, EF Core, Dapr, etc.)
+- **methodology/**: 16 skills Superpowers (TDD, brainstorming, etc.)
 - **rag/**: Document retrieval y parsing
 - **utils/**: Utilidades varias
 
@@ -78,9 +78,9 @@ El orchestrator leera automaticamente el contexto empresarial y estara listo par
 | `blazor-dashboard` | Dashboard admin MudBlazor |
 | `event-sourcing` | Microservicio Event Sourcing |
 
-### Commands Slash (12)
+### Commands Slash (13)
 
-`/start`, `/brainstorm`, `/plan`, `/execute`, `/test`, `/review`, `/migrate`, `/onboard`, `/publish-skill`, `/metrics`, `/template-list`, `/rag-search`
+`/start`, `/brainstorm`, `/plan`, `/execute`, `/test`, `/review`, `/migrate`, `/onboard`, `/publish-skill`, `/metrics`, `/template-list`, `/rag-search`, `/mcp`
 
 ---
 
@@ -182,8 +182,44 @@ El orchestrator leera automaticamente el contexto empresarial y estara listo par
 
 ---
 
+## Funcionalidades Enterprise
+
+### MCPs (Model Context Protocol)
+El DevKit recomienda MCPs para enriquecer el contexto del agente:
+- **nuget** - Buscar paquetes y versiones
+- **github** - Issues, PRs y releases
+- **postgresql** - Introspeccion de schema
+- **docker** - Gestion de contenedores
+- **fetch** - HTTP requests
+
+Instalacion: `opencode mcp add <nombre>`
+Configuracion: `.mcp.json`
+
+### LSP Tools
+Navegacion y refactoring con herramientas LSP nativas:
+- `lsp_goto_definition` - Saltar a definicion
+- `lsp_find_references` - Encontrar referencias
+- `lsp_rename` - Renombrar globalmente
+- `lsp_diagnostics` - Ver errores del compilador
+
+### Background Analysis
+Analisis en paralelo mientras desarrollas:
+- Revision de arquitectura
+- Scan de seguridad
+- Analisis de calidad
+- Check de dependencias
+
+### IntentGate Avanzado
+Router de intenciones que detecta automaticamente:
+- Tipo de tarea (backend, frontend, infra, etc.)
+- Modo de trabajo (normal, ultrawork, team)
+- MCPs relevantes segun contexto
+- LSP tools para refactoring
+
+---
+
 ## Documentation
 
-- [INSTALL.md](./.opencode/INSTALL.md) - Instalación detallada
+- [INSTALL.md](./.opencode/INSTALL.md) - Instalacion detallada
 - [AGENTS.md](./docs/AGENTS.md) - Lista de agentes
-- [METHODOLOGY.md](./docs/METHODOLOGY.md) - Metodología Superpowers
+- [METHODOLOGY.md](./docs/METHODOLOGY.md) - Metodologia Superpowers

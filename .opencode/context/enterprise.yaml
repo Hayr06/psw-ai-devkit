@@ -119,3 +119,74 @@ metadata:
   team: "Desarrollo"
   created: "2026-01-01"
   owner: "devteam@psw.example.com"
+
+mcps:
+  description: "MCPs recomendados para el equipo .NET. Instalar via opencode mcp add <nombre>"
+
+  recommended:
+    - name: "nuget"
+      source: "npm:@modelcontextprotocol/server-nuget"
+      description: "Buscar paquetes NuGet, versiones y dependencias"
+      use_cases:
+        - "Verificar si un paquete existe antes de agregarlo"
+        - "Encontrar versiones compatibles"
+        - "Revisar dependencias transitivas"
+
+    - name: "github"
+      source: "npm:@modelcontextprotocol/server-github"
+      description: "Issues, PRs, releases y codebase de GitHub"
+      use_cases:
+        - "Buscar issues relacionados a un bug"
+        - "Revisar PRs abiertos antes de merge"
+        - "Consultar releases para versionado"
+
+    - name: "postgresql"
+      source: "npm:@modelcontextprotocol/server-postgres"
+      description: "Introspeccion de schema PostgreSQL"
+      use_cases:
+        - "Verificar tablas y columnas existentes"
+        - "Revisar constraints e indices"
+        - "Validar queries contra schema real"
+
+    - name: "docker"
+      source: "npm:@modelcontextprotocol/server-docker"
+      description: "Gestion de contenedores e imagenes"
+      use_cases:
+        - "Listar contenedores en ejecucion"
+        - "Verificar logs de servicios"
+        - "Revisar imagenes y tamanos"
+
+    - name: "fetch"
+      source: "npm:@modelcontextprotocol/server-fetch"
+      description: "HTTP requests para APIs externas"
+      use_cases:
+        - "Probar endpoints de microservicios"
+        - "Consultar documentacion online"
+        - "Validar respuestas de APIs"
+
+    - name: "filesystem"
+      source: "npm:@modelcontextprotocol/server-filesystem"
+      description: "Operaciones de filesystem seguras"
+      use_cases:
+        - "Leer archivos de configuracion"
+        - "Listar estructura de directorios"
+        - "Buscar archivos por patron"
+
+  installation:
+    command: "opencode mcp add <nombre-del-mcp>"
+    example: "opencode mcp add github"
+
+  configuration:
+    file: ".mcp.json"
+    example: |
+      {
+        "mcpServers": {
+          "github": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {
+              "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+            }
+          }
+        }
+      }
