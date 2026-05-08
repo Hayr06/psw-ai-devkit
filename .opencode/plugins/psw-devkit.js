@@ -1,85 +1,105 @@
----
-name: psw-devkit
-description: Plugin DevKit para equipos .NET - Skills, agents, commands y scaffolding empresarial
-version: 1.0.0
----
+/**
+ * PSW DevKit Plugin para OpenCode.ai
+ *
+ * Plugin distribuible unificado que registra:
+ * - Skills de .NET, methodology, RAG y utils
+ * - Agents (orchestrator + 6 specialists)
+ * - Commands slash
+ * - Scaffolding templates
+ * - Contexto empresarial
+ */
 
-# PSW DevKit Plugin
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
-Plugin distribuible para equipos de desarrollo .NET que automatiza:
-- Skills técnicos .NET 9/10, Blazor, Clean Architecture, DDD, CQRS
-- Agente orchestrator con detección automática de contexto
-- Commands slash para flujo de desarrollo
-- Scaffolding templates para proyectos SaaS, API Gateway, etc.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-## Instalación
+export const PSWDevKitPlugin = async ({ client, directory }) => {
+  const skillsPath = path.resolve(__dirname, '../skills');
+  const agentsPath = path.resolve(__dirname, '../agents');
+  const commandsPath = path.resolve(__dirname, '../commands');
+  const scriptsPath = path.resolve(__dirname, '../scripts');
+  const contextPath = path.resolve(__dirname, '../context/enterprise.yaml');
 
-```json
-{
-  "plugin": ["psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git"]
-}
-```
+  const hasEnterpriseContext = fs.existsSync(contextPath);
 
-## Componentes
+  return {
+    config: async (config) => {
+      config.skills = config.skills || {};
+      config.skills.paths = config.skills.paths || [];
 
-### Agentes
-- `@orchestrator` - Agente principal con router de intenciones
-- `@frontend-specialist` - Blazor WASM + MudBlazor/FluentUI
-- `@backend-specialist` - DDD, CQRS, Clean Architecture
-- `@devops-specialist` - Docker, CI/CD, infraestructura
-- `@migration-specialist` - Extracción de bounded contexts
-- `@qa-specialist` - Testing estratégico
-- `@security-specialist` - JWT, secrets, vulnerabilidades
+      const skillCategories = ['dotnet', 'methodology', 'rag', 'utils'];
+      for (const category of skillCategories) {
+        const categoryPath = path.join(skillsPath, category);
+        if (fs.existsSync(categoryPath) && !config.skills.paths.includes(categoryPath)) {
+          config.skills.paths.push(categoryPath);
+        }
+      }
 
-### Skills (50+)
-- **dotnet/**: 35+ skills técnicos
-- **methodology/**: 13 skills Superpowers
-- **rag/**: Document retrieval y parsing
-- **utils/**: Utilidades varias
+      config.agents = config.agents || { paths: [] };
+      if (!config.agents.paths.includes(agentsPath)) {
+        config.agents.paths.push(agentsPath);
+      }
 
-### Commands
-- `/start`, `/brainstorm`, `/plan`, `/execute`, `/test`, `/review`, `/migrate`
-- `/onboard` - Onboarding nuevo desarrollador
-- `/publish-skill` - Publicar skill internamente
-- `/metrics` - Ver métricas del equipo
-- `/template-list` - Listar templates disponibles
+      config.commands = config.commands || { paths: [] };
+      if (!config.commands.paths.includes(commandsPath)) {
+        config.commands.paths.push(commandsPath);
+      }
 
-### Scaffolding Templates
-- `saas-starter/` - Proyecto SaaS multi-tenant completo
-- `api-gateway/` - Solo YARP Gateway
-- `blazor-dashboard/` - Dashboard administrativo
-- `event-sourcing/` - Microservicio con Event Sourcing
-- `clean-arch-microservices/` - Template base (existente)
-- `monolith-to-microservices/` - Guía migración (existente)
+      config.psw_devkit = {
+        scripts_path: scriptsPath,
+        context_path: contextPath,
+        version: '1.0.0'
+      };
+    },
 
-## Reglas del Plugin
+    'session.created': async ({ client }) => {
+      await client.app.log({
+        body: {
+          service: 'psw-devkit',
+          level: 'info',
+          message: 'PSW DevKit v1.0.0 initialized',
+          enterprise_context_loaded: hasEnterpriseContext,
+          skills_path: skillsPath,
+          agents_path: agentsPath
+        }
+      });
 
-1. **Modelo-agnóstico**: Funciona con cualquier LLM compatible OpenAI API
-2. **Sin código sin diseño**: Brainstorming obligatorio antes de implementar
-3. **TDD estricto**: RED-GREEN-REFACTOR siempre
-4. **Evidence over claims**: Verificar antes de declarar éxito
-5. **YAGNI + DRY**: No sobreingeniería
+      if (hasEnterpriseContext) {
+        const contextContent = fs.readFileSync(contextPath, 'utf8');
 
-## Convenciones de Arquitectura
+        await client.app.log({
+          body: {
+            service: 'psw-devkit',
+            level: 'info',
+            message: 'Enterprise context loaded',
+            context_preview: contextContent.substring(0, 200) + '...'
+          }
+        });
+      }
+    },
 
-- **API Gateway**: Solo routing, sin lógica de negocio
-- **Database-per-service**: Cada microservicio su propia DB
-- **CQRS**: EF Core writes, Dapper reads
-- **Minimal APIs**: Preferido sobre Controllers
-- **Blazor WASM**: HttpClient tipado, NUNCA ProjectReference al backend
-- **Event-driven**: Dapr Pub/Sub
+    'experimental.chat.messages.transform': async (_input, output) => {
+      if (!hasEnterpriseContext || !output.messages.length) return;
 
-## Stack Tecnológico por Defecto
+      const firstUser = output.messages.find(m => m.info.role === 'user');
+      if (!firstUser || !firstUser.parts.length) return;
 
-- .NET 10 / .NET 9
-- SQL Server / PostgreSQL
-- Blazor WebAssembly (standalone)
-- YARP API Gateway
-- Dapr para microservicios distribuidos
-- Docker + Docker Compose
+      if (firstUser.parts.some(p => p.type === 'text' && p.text.includes('[PSW_DEVKIT_CONTEXT]'))) return;
 
-## Calidad Mínima
+      const contextContent = fs.readFileSync(contextPath, 'utf8');
+      const contextInjection = `[PSW_DEVKIT_CONTEXT]
+Este es el contexto empresarial del equipo PSW. DEBES seguir estas reglas:
 
-- Coverage: 80% mínimo
-- Complejidad ciclomática: <= 10
-- Probar siempre: `dotnet build && dotnet test`
+${contextContent}
+
+[FIN CONTEXT]
+
+`;
+
+      const ref = firstUser.parts[0];
+      firstUser.parts.unshift({ ...ref, type: 'text', text: contextInjection });
+    }
+  };
+};

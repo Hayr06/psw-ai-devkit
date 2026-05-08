@@ -2,8 +2,7 @@
   "$schema": "https://opencode.ai/config.json",
 
   "plugin": [
-    "superpowers@git+https://github.com/obra/superpowers.git",
-    "devkit-dotnet@git+https://github.com/Hayr06/superpowers.git"
+    "psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git"
   ],
 
   "provider": {
@@ -38,6 +37,8 @@
       "dotnet add*": "allow",
       "dotnet new*": "allow",
       "dotnet run*": "allow",
+      "dotnet sln*": "allow",
+      "dotnet ef*": "allow",
       "git status": "allow",
       "git diff*": "allow",
       "git log*": "allow",
@@ -45,6 +46,8 @@
       "git commit*": "allow",
       "git branch*": "allow",
       "git checkout*": "allow",
+      "git tag*": "allow",
+      "git push*": "allow",
       "docker compose*": "allow",
       "docker build*": "allow",
       "docker run*": "allow",
