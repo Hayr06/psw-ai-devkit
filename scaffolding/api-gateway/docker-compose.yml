@@ -1,0 +1,14 @@
+services:
+  api-gateway:
+    build: ./src/API.Gateway
+    ports:
+      - "5000:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      - identity-api
+
+  identity-api:
+    image: your-registry/identity-api:latest
+    ports:
+      - "5001:80"

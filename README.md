@@ -4,11 +4,21 @@ DevKit para proyectos .NET Microservicios con OpenCode + Superpowers + Clean Arc
 
 ## Quick Start
 
-### 1. Agregar a opencode.json
+### 1. Agregar a tu opencode.json
+
+En tu proyecto, crea o edita `opencode.json`:
 
 ```json
 {
   "plugin": ["psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git"]
+}
+```
+
+O para una version especifica (recomendado):
+
+```json
+{
+  "plugin": ["psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git#v1.0.0"]
 }
 ```
 
@@ -18,17 +28,21 @@ DevKit para proyectos .NET Microservicios con OpenCode + Superpowers + Clean Arc
 opencode
 ```
 
-### 3. Usar el Orchestrator
+### 3. Verificar instalacion
+
+Al iniciar, deberias ver en los logs:
+```
+PSW DevKit v1.0.0 initialized
+Enterprise context loaded
+```
+
+### 4. Usar el Orchestrator
 
 ```
 @orchestrator
 ```
 
-El orchestrator leerá automáticamente:
-- `.opencode/context/enterprise.yaml` - Contexto empresarial
-- Todos los skills en `.opencode/skills/`
-- Todos los agents en `.opencode/agents/`
-- Todos los commands en `.opencode/commands/`
+El orchestrator leera automaticamente el contexto empresarial y estara listo para ayudarte.
 
 ---
 
