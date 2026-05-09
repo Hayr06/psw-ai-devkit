@@ -2,7 +2,7 @@
   "name": "psw-devkit",
   "version": "1.0.0",
   "description": "DevKit para proyectos .NET Microservicios con OpenCode",
-  "main": "./.opencode/plugins/psw-devkit.js",
+  "main": "/.opencode/plugins/psw-devkit.js",
   "type": "module",
   "keywords": ["opencode", "dotnet", "microservices", "ddd", "blazor"],
   "author": "PSW Team",
