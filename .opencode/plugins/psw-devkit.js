@@ -1,12 +1,19 @@
 /**
  * PSW DevKit Plugin para OpenCode.ai
  *
- * Plugin distribuible unificado que registra skills, inyecta contexto
- * empresarial, y sincroniza agents/commands al proyecto del usuario.
+ * Plugin distribuible unificado que registra:
+ * - Skills de .NET, methodology, RAG y utils
+ * - Agents (orchestrator + 6 specialists)
+ * - Commands slash
+ * - Scaffolding templates
+ * - Contexto empresarial
  *
- * IMPORTANTE: OpenCode descubre agents/commands SOLO al arrancar,
- * leyendo .opencode/agents/ y .opencode/commands/ del proyecto.
- * La sincronizacion automatica requiere un REINICIO de OpenCode.
+ * ESTRATEGIA: OpenCode descubre agents/commands durante el arranque
+ * leyendo el objeto config.  Este plugin inyecta agents/commands
+ * directamente en config.agent / config.command desde el hook `config`,
+ * garantizando que esten disponibles INMEDIATAMENTE sin copiar archivos
+ * ni reiniciar.  Ademas sincroniza archivos .md al proyecto para
+ * persistencia entre sesiones.
  */
 
 import path from 'path';
@@ -16,9 +23,62 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /* ------------------------------------------------------------------ */
-/*  Utilidades de copia segura                                        */
+/*  Utilidades                                                        */
 /* ------------------------------------------------------------------ */
 
+/** Parsea frontmatter YAML simple (solo primer nivel + permission anidado). */
+function parseFrontmatter(content) {
+  const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  if (!m) return null;
+
+  const meta = {};
+  let currentKey = null;
+  for (const line of m[1].split('\n')) {
+    const trimmed = line.trimEnd();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const indent = trimmed.search(/\S/);
+    const kv = trimmed.match(/^(\w+):\s*(.*)$/);
+
+    if (indent === 0 && kv) {
+      currentKey = kv[1];
+      const val = kv[2].trim();
+      meta[currentKey] = val || {};
+    } else if (indent > 0 && currentKey && typeof meta[currentKey] === 'object' && kv) {
+      meta[currentKey][kv[1]] = kv[2].trim();
+    }
+  }
+  return { meta, body: m[2] };
+}
+
+/** Lee todos los archivos .md de un directorio y retorna [{name, meta, body}]. */
+function loadMarkdownFiles(dir) {
+  const results = [];
+  if (!fs.existsSync(dir)) return results;
+
+  function walk(currentDir) {
+    for (const entry of fs.readdirSync(currentDir)) {
+      const full = path.join(currentDir, entry);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        walk(full);
+      } else if (entry.endsWith('.md')) {
+        const content = fs.readFileSync(full, 'utf8');
+        const parsed = parseFrontmatter(content);
+        if (parsed && parsed.meta.name) {
+          results.push({
+            name: parsed.meta.name,
+            meta: parsed.meta,
+            body: parsed.body
+          });
+        }
+      }
+    }
+  }
+  walk(dir);
+  return results;
+}
+
+/** Copia recursiva segura (no sobrescribe). */
 function copyRecursive(src, dest, opts = {}) {
   const stats = fs.statSync(src);
   if (stats.isDirectory()) {
@@ -51,25 +111,16 @@ function syncDir(src, dest, result, rootTarget) {
 
 function doSync(projectDir, sourceDir) {
   const targetDir = path.join(projectDir, '.opencode');
-  const result = { copied: [], skipped: [], errors: [], targetDir };
-
+  const result = { copied: [], skipped: [], errors: [] };
   if (!fs.existsSync(sourceDir)) {
     result.errors.push(`Source not found: ${sourceDir}`);
     return result;
   }
-
-  for (const dir of ['agents', 'commands', 'context', 'scripts']) {
+  for (const dir of ['agents', 'commands', 'context', 'scripts', 'skills']) {
     syncDir(path.join(sourceDir, dir), path.join(targetDir, dir), result, targetDir);
   }
-
-  syncDir(path.join(sourceDir, 'skills'), path.join(targetDir, 'skills'), result, targetDir);
-
   return result;
 }
-
-/* ------------------------------------------------------------------ */
-/*  Deteccion robusta de la raiz del proyecto                         */
-/* ------------------------------------------------------------------ */
 
 function findProjectRoot(startDir) {
   let dir = path.resolve(startDir);
@@ -78,7 +129,6 @@ function findProjectRoot(startDir) {
     if (fs.existsSync(path.join(dir, '.opencode', 'opencode.json'))) return dir;
     if (fs.existsSync(path.join(dir, '.git'))) return dir;
     if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -98,43 +148,26 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
   const scriptsPath       = path.join(pluginOpencodeDir, 'scripts');
   const contextPath       = path.join(pluginOpencodeDir, 'context', 'enterprise.yaml');
   const hasEnterpriseCtx  = fs.existsSync(contextPath);
+  const pluginRoot        = path.resolve(__dirname, '..', '..');
 
-  // Directorio raiz del paquete psw-devkit (para evitar copiar sobre si mismo)
-  const pluginRoot = path.resolve(__dirname, '..', '..');
-
-  // Estado compartido
-  let syncResult   = null;
-  let projectRoot  = null;
-  let needsRestart = false;
-  let agentsFound  = false;
+  let syncResult = null;
+  let projectRoot = null;
 
   function attemptSync(targetDir) {
-    if (!targetDir) {
-      return { copied: [], skipped: [], errors: ['No se pudo detectar la raiz del proyecto'] };
-    }
+    if (!targetDir) return { copied: [], skipped: [], errors: ['No project directory'] };
     if (path.resolve(targetDir) === path.resolve(pluginRoot)) {
       return { copied: [], skipped: [], errors: [], _skippedDev: true };
     }
-    try {
-      return doSync(targetDir, pluginOpencodeDir);
-    } catch (err) {
-      return { copied: [], skipped: [], errors: [err.message] };
-    }
-  }
-
-  function checkAgents(projectDir) {
-    if (!projectDir) return false;
-    const agentsDir = path.join(projectDir, '.opencode', 'agents');
-    if (!fs.existsSync(agentsDir)) return false;
-    return fs.readdirSync(agentsDir).some(f => f.endsWith('.md'));
+    try { return doSync(targetDir, pluginOpencodeDir); }
+    catch (err) { return { copied: [], skipped: [], errors: [err.message] }; }
   }
 
   return {
-    /* ----------------------------------------------------------------
-       Hook CONFIG — registra skills. La sincronizacion de archivos se
-       hace en session.created donde tenemos acceso a client.project.
-       ---------------------------------------------------------------- */
+    /* ================================================================
+       HOOK CONFIG  —  se ejecuta ANTES de que OpenCode descubra agents
+       ================================================================ */
     config: async (config) => {
+      // ---- 1. Skills (paths) ----
       config.skills = config.skills || {};
       config.skills.paths = config.skills.paths || [];
       for (const cat of ['dotnet', 'methodology', 'rag', 'utils']) {
@@ -144,91 +177,82 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
         }
       }
 
-      config.agents = config.agents || { paths: [] };
-      if (!config.agents.paths.includes(agentsPath)) {
-        config.agents.paths.push(agentsPath);
-      }
-      config.commands = config.commands || { paths: [] };
-      if (!config.commands.paths.includes(commandsPath)) {
-        config.commands.paths.push(commandsPath);
-      }
-
-      config.psw_devkit = {
-        scripts_path: scriptsPath,
-        context_path: contextPath,
-        version: '1.0.2'
-      };
-    },
-
-    /* ----------------------------------------------------------------
-       Hook SESSION.CREATED — detecta proyecto, sincroniza, reporta.
-       ---------------------------------------------------------------- */
-    'session.created': async ({ client }) => {
-      // ---- Paso 1: detectar raiz del proyecto ----
-      const candidates = [];
-
-      // 1a) directory pasado por OpenCode
-      if (directory) {
-        candidates.push({ source: 'directory', path: path.resolve(directory) });
-      }
-
-      // 1b) API del SDK (la mas confiable)
-      if (client?.project?.current) {
-        try {
-          const proj = await client.project.current();
-          if (proj?.path) {
-            candidates.push({ source: 'client.project.current()', path: path.resolve(proj.path) });
+      // ---- 2. Agents  —  INYECCION DIRECTA EN CONFIG ----
+      // OpenCode lee config.agent para descubrir agents.  Inyectamos
+      // agents directamente para que esten disponibles INMEDIATAMENTE.
+      config.agent = config.agent || {};
+      const agentFiles = loadMarkdownFiles(agentsPath);
+      for (const { name, meta, body } of agentFiles) {
+        if (!name || config.agent[name]) continue; // No sobrescribir existentes
+        config.agent[name] = {
+          description: meta.description || `Agent ${name}`,
+          mode: meta.mode || 'subagent',
+          prompt: body.trim()
+        };
+        if (meta.model) config.agent[name].model = meta.model;
+        if (meta.temperature) config.agent[name].temperature = parseFloat(meta.temperature);
+        if (meta.permission) {
+          config.agent[name].permission = {};
+          for (const [k, v] of Object.entries(meta.permission)) {
+            config.agent[name].permission[k] = v;
           }
-        } catch (_e) {}
-      }
-
-      // 1c) buscar desde cwd
-      const fromCwd = findProjectRoot(process.cwd());
-      if (fromCwd) {
-        candidates.push({ source: 'cwd', path: fromCwd });
-      }
-
-      // 1d) buscar desde el directorio del plugin hacia arriba
-      const fromPlugin = findProjectRoot(path.resolve(__dirname, '..', '..', '..'));
-      if (fromPlugin) {
-        candidates.push({ source: 'plugin-parent', path: fromPlugin });
-      }
-
-      // Elegir el primer candidato que NO sea el repo del plugin
-      for (const c of candidates) {
-        if (path.resolve(c.path) !== path.resolve(pluginRoot)) {
-          projectRoot = c.path;
-          break;
         }
       }
 
-      // ---- Paso 2: verificar si agents ya existen ----
-      agentsFound = checkAgents(projectRoot);
-
-      // ---- Paso 3: sincronizar ----
-      if (!agentsFound) {
-        syncResult = attemptSync(projectRoot);
-        needsRestart = syncResult && syncResult.copied.length > 0;
-        if (needsRestart) agentsFound = checkAgents(projectRoot);
-      } else {
-        syncResult = { copied: [], skipped: [], errors: [], _alreadyPresent: true };
-        needsRestart = false;
+      // ---- 3. Commands  —  INYECCION DIRECTA EN CONFIG ----
+      config.command = config.command || {};
+      const commandFiles = loadMarkdownFiles(commandsPath);
+      for (const { name, meta, body } of commandFiles) {
+        if (!name || config.command[name]) continue;
+        config.command[name] = {
+          description: meta.description || `Command /${name}`,
+          template: body.trim()
+        };
+        if (meta.agent) config.command[name].agent = meta.agent;
+        if (meta.model) config.command[name].model = meta.model;
+        if (meta.subtask) config.command[name].subtask = meta.subtask === 'true' || meta.subtask === true;
       }
 
-      // ---- Paso 4: logging ----
+      // ---- 4. Metadatos ----
+      config.psw_devkit = {
+        scripts_path: scriptsPath,
+        context_path: contextPath,
+        version: '1.0.3',
+        agents_injected: agentFiles.length,
+        commands_injected: commandFiles.length
+      };
+
+      // ---- 5. Sincronizar archivos al proyecto (para persistencia) ----
+      const candidates = [];
+      if (directory) candidates.push(path.resolve(directory));
+      const fromCwd = findProjectRoot(process.cwd());
+      if (fromCwd) candidates.push(fromCwd);
+      const fromPlugin = findProjectRoot(path.resolve(__dirname, '..', '..', '..'));
+      if (fromPlugin) candidates.push(fromPlugin);
+
+      for (const c of candidates) {
+        if (path.resolve(c) !== path.resolve(pluginRoot)) {
+          projectRoot = c;
+          break;
+        }
+      }
+      syncResult = attemptSync(projectRoot);
+    },
+
+    /* ================================================================
+       HOOK SESSION.CREATED  —  reporte de estado
+       ================================================================ */
+    'session.created': async ({ client }) => {
       await client.app.log({
         body: {
           service: 'psw-devkit',
           level: 'info',
-          message: 'PSW DevKit v1.0.2 initialized',
+          message: 'PSW DevKit v1.0.3 initialized',
           enterprise_context_loaded: hasEnterpriseCtx,
-          project_root_detected: projectRoot,
-          project_root_source: candidates.find(c => c.path === projectRoot)?.source || 'none',
-          agents_found: agentsFound,
+          agents_injected: (syncResult && syncResult._skippedDev) ? 'dev-skipped' : 'injected-via-config',
           sync_copied: syncResult ? syncResult.copied.length : 0,
-          sync_skipped: syncResult ? syncResult.skipped.length : 0,
           sync_errors: syncResult ? syncResult.errors.length : 0,
-          needs_restart: needsRestart
+          project_root: projectRoot
         }
       });
 
@@ -238,7 +262,8 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
             service: 'psw-devkit',
             level: 'info',
             message: `PSW DevKit: ${syncResult.copied.length} archivos sincronizados a .opencode/`,
-            action_required: 'REINICIA OPENCODE para que los agents y commands aparezcan'
+            detail: 'Los agents y commands YA estan disponibles (inyectados en config). ' +
+                    'Los archivos sincronizados garantizan persistencia para futuras sesiones.'
           }
         });
       }
@@ -248,10 +273,9 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
           body: {
             service: 'psw-devkit',
             level: 'warn',
-            message: 'PSW DevKit: sincronizacion automatica fallo',
+            message: 'PSW DevKit: sincronizacion de archivos fallo',
             errors: syncResult.errors,
-            detected_project_root: projectRoot,
-            solution: 'Ejecuta manualmente desde la raiz de tu proyecto: npx psw-devkit-init'
+            solution: 'Ejecuta manualmente: npx psw-devkit-init'
           }
         });
       }
@@ -269,9 +293,9 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
       }
     },
 
-    /* ----------------------------------------------------------------
-       Inyeccion de contexto empresarial.
-       ---------------------------------------------------------------- */
+    /* ================================================================
+       Inyeccion de contexto empresarial
+       ================================================================ */
     'experimental.chat.messages.transform': async (_input, output) => {
       if (!hasEnterpriseCtx || !output.messages.length) return;
 
