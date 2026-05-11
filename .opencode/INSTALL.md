@@ -1,4 +1,4 @@
-# Installing DevKit DotNet + Superpowers
+# Installing PSW DevKit for OpenCode
 
 ## Prerequisites
 
@@ -7,26 +7,77 @@
 
 ## Installation
 
-### Step 1: Add plugins to opencode.json
+### Step 1: Add plugin to opencode.json
 
-Add both plugins to the `plugin` array in your `opencode.json` (global or project-level):
+Add the plugin to the `plugin` array in your `opencode.json` (global or project-level):
 
 ```json
 {
   "plugin": [
     "superpowers@git+https://github.com/obra/superpowers.git",
-    "devkit-dotnet@git+https://github.com/Hayr06/superpowers.git"
+    "psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git"
   ]
 }
 ```
 
-**Important:** Superpowers must be listed FIRST, then devkit-dotnet. The plugin order matters.
+**Important:** Superpowers must be listed FIRST, then psw-devkit. The plugin order matters.
 
 ### Step 2: Restart OpenCode
 
-Restart OpenCode. Both plugins will auto-install and register all skills, agents, and commands.
+Restart OpenCode. The plugin will auto-install and register skills.
 
-Verify by asking: "Tell me about your superpowers and devkit-dotnet"
+```bash
+opencode
+```
+
+### Step 3: Synchronize agents, commands, and resources
+
+**Automatic (recommended):** On the first session, the plugin detects missing files and copies them automatically to `.opencode/`. Check the logs for:
+
+```
+PSW DevKit files synced to project: 97 new files copied to .opencode/
+```
+
+**Manual (if auto-sync fails):** Run from your project root:
+
+```bash
+npx psw-devkit-init
+```
+
+This copies all agents, commands, skills, context, and scripts to your project's `.opencode/` directory.
+
+### Step 4: Restart OpenCode again
+
+After synchronization, **restart OpenCode** so it discovers the new agents and commands:
+
+```bash
+opencode
+```
+
+### Step 5: Verify installation
+
+Check that agents are available:
+
+```bash
+opencode agent list | grep -E "orchestrator|specialist"
+```
+
+You should see:
+- `orchestrator (primary)`
+- `backend-specialist`, `frontend-specialist`, `devops-specialist`
+- `migration-specialist`, `qa-specialist`, `security-specialist`
+
+Try the orchestrator:
+
+```
+@orchestrator
+```
+
+Or run a command in the TUI:
+
+```
+/brainstorm
+```
 
 ## Setup Script
 
@@ -43,19 +94,25 @@ This installs:
 
 ## Included Content
 
-### Agents
+### Agents (7)
 - `orchestrator` - Main agent hub, single point of contact for developers
+- `frontend-specialist` - Blazor WASM, MudBlazor, FluentUI
+- `backend-specialist` - DDD, CQRS, Clean Architecture
+- `devops-specialist` - Docker, CI/CD, Azure
+- `migration-specialist` - Extraction of bounded contexts
+- `qa-specialist` - Testing, coverage, quality
+- `security-specialist` - JWT, secrets, OWASP
 
-### Skills (40+ total)
+### Skills (55+)
 
-**Methodology (13 Superpowers skills):**
+**Methodology (16 Superpowers skills):**
 - brainstorming, writing-plans, test-driven-development
 - subagent-driven-development, systematic-debugging
 - verification-before-completion, requesting-code-review
 - receiving-code-review, finishing-a-development-branch
 - using-git-worktrees, dispatching-parallel-agents, writing-skills, executing-plans
 
-**.NET Technical (25+ skills):**
+**.NET Technical (45+ skills):**
 - scaffolding, clean-arch-design, ddd-aggregate, domain-analysis
 - blazor-component, blazor-authentication, blazor-debugging, blazor-error-handling, blazor-hosting
 - fluentui-blazor, yarp-config, dapr-microservices
@@ -68,7 +125,7 @@ This installs:
 **RAG & Utils:**
 - rag-document-retrieval, document-parsing, find-skills
 
-### Commands
+### Commands (13)
 - `/start` - Full session with brainstorming
 - `/brainstorm` - Design session
 - `/plan` - Create implementation plan
@@ -77,7 +134,10 @@ This installs:
 - `/test` - Run tests with coverage
 - `/review` - Code review
 - `/migrate` - Monolith to microservices
-- rag-load, rag-search, analyze-image
+- `/onboard` - Onboarding new developer
+- `/metrics` - Team metrics
+- `/template-list` - List available templates
+- `rag-load`, `rag-search`, `analyze-image`
 
 ### Scripts
 - `setup.sh` - Install dependencies
@@ -86,7 +146,13 @@ This installs:
 
 ## Updating
 
-Both plugins update automatically when you restart OpenCode.
+The plugin updates automatically when you restart OpenCode.
+
+To update the local `.opencode/` files (agents, commands, etc.) to the latest version:
+
+```bash
+npx psw-devkit-init
+```
 
 To pin specific versions:
 
@@ -94,7 +160,7 @@ To pin specific versions:
 {
   "plugin": [
     "superpowers@git+https://github.com/obra/superpowers.git#v5.0.3",
-    "devkit-dotnet@git+https://github.com/Hayr06/superpowers.git#main"
+    "psw-devkit@git+https://github.com/Hayr06/psw-ai-devkit.git#v1.0.0"
   ]
 }
 ```
@@ -103,13 +169,22 @@ To pin specific versions:
 
 ### Plugin not loading
 
-1. Check plugin order (superpowers FIRST, devkit-dotnet SECOND)
+1. Check plugin order (superpowers FIRST, psw-devkit SECOND)
 2. Check logs: `opencode run --print-logs "hello" 2>&1 | grep -i devkit`
-3. Verify plugins are installed: `ls ~/.config/opencode/plugins/`
+3. Verify plugins are installed: `ls ~/.cache/opencode/packages/ | grep psw`
+
+### Agents or commands not appearing
+
+OpenCode only loads agents/commands from `.opencode/agents/` and `.opencode/commands/` in your project. The plugin auto-copies these files on first session, but you may need to:
+
+1. Run manual sync: `npx psw-devkit-init`
+2. Restart OpenCode completely
+3. Verify files exist: `ls .opencode/agents/ && ls .opencode/commands/`
 
 ### Skills not found
 
-Use `skill` tool to list what's discovered:
+Skills are loaded via `config.skills.paths` and should work immediately. Use the `skill` tool to list what's discovered:
+
 ```
 use skill tool to list skills
 ```
@@ -117,17 +192,18 @@ use skill tool to list skills
 ### Scripts not working
 
 Make scripts executable:
+
 ```bash
 chmod +x .opencode/scripts/*.sh
 ```
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md) - Agent documentation
-- [docs/METHODOLOGY.md](docs/METHODOLOGY.md) - Superpowers methodology guide
-- [docs/INSTALL.md](docs/INSTALL.md) - Full installation guide
+- [AGENTS.md](../docs/AGENTS.md) - Agent documentation
+- [METHODOLOGY.md](../docs/METHODOLOGY.md) - Superpowers methodology guide
+- [README.md](../README.md) - Full README
 
 ## Getting Help
 
-- DevKit issues: https://github.com/Hayr06/superpowers/issues
+- PSW DevKit issues: https://github.com/Hayr06/psw-ai-devkit/issues
 - Superpowers: https://github.com/obra/superpowers/issues

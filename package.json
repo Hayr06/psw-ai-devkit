@@ -1,0 +1,37 @@
+{
+  "name": "psw-devkit",
+  "version": "1.0.1",
+  "description": "DevKit para proyectos .NET Microservicios con OpenCode + Superpowers + Clean Architecture + DDD",
+  "main": "./.opencode/plugins/psw-devkit.js",
+  "type": "module",
+  "bin": {
+    "psw-devkit-init": "./bin/psw-devkit-init.js"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "dotnet",
+    "microservices",
+    "ddd",
+    "blazor",
+    "clean-architecture",
+    "cqrs"
+  ],
+  "author": "PSW Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hayr06/psw-ai-devkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Hayr06/psw-ai-devkit/issues"
+  },
+  "homepage": "https://github.com/Hayr06/psw-ai-devkit#readme",
+  "files": [
+    ".opencode/",
+    "bin/",
+    "scaffolding/",
+    "README.md",
+    "LICENSE"
+  ]
+}

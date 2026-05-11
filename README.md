@@ -28,17 +28,39 @@ O para una version especifica (recomendado):
 opencode
 ```
 
-### 3. Verificar instalacion
+Al iniciar, el plugin detectara automaticamente si faltan agents, commands, skills, contexto o scripts en tu proyecto y los copiara a `.opencode/`. Veras en los logs:
 
-Al iniciar, deberias ver en los logs:
 ```
 PSW DevKit v1.0.0 initialized
+PSW DevKit files synced to project: 97 new files copied to .opencode/
 Enterprise context loaded
 ```
 
-### 4. Usar el Orchestrator
+### 3. Si la sincronizacion automatica falla
 
+Ejecuta manualmente desde la raiz de tu proyecto:
+
+```bash
+npx psw-devkit-init
 ```
+
+Esto copiara todos los recursos necesarios a `.opencode/`.
+
+### 4. Reiniciar OpenCode (importante)
+
+Despues de la sincronizacion, **reinicia OpenCode** para que descubra los nuevos agents y commands:
+
+```bash
+opencode
+```
+
+### 5. Verificar instalacion
+
+```bash
+# Deberias ver los 7 agents de PSW
+opencode agent list | grep -E "orchestrator|specialist"
+
+# Usar el Orchestrator
 @orchestrator
 ```
 
