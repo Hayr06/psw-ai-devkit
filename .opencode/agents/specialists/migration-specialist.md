@@ -1,6 +1,8 @@
 ---
 name: migration-specialist
 description: Especializado en estrangulación de monolitos y extracción de bounded contexts
+mode: subagent
+temperature: 0.4
 ---
 
 # Migration Specialist

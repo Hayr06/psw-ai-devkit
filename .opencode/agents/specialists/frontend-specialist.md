@@ -1,6 +1,8 @@
 ---
 name: frontend-specialist
 description: Especializado en Blazor WebAssembly, MudBlazor, FluentUI, diseño UX y componentes
+mode: subagent
+temperature: 0.3
 ---
 
 # Frontend Specialist
