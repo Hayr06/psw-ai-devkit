@@ -1,12 +1,11 @@
 /**
- * PSW DevKit Plugin para OpenCode.ai  (v1.0.4-fixed)
+ * PSW DevKit Plugin para OpenCode.ai  (v2.0.0-memory)
  *
- * Correcciones:
- * 1. Resolución robusta de paths cuando el plugin se instala desde git
- * 2. Uso prioritario del `directory` pasado por OpenCode
- * 3. Logging de debug en cada paso crítico
- * 4. Manejo de errores en client.app.log
- * 5. Skills paths relativos al proyecto cuando es posible
+ * Estrategia: ZERO-COPY. Todo se carga en memoria desde el cache/git del plugin.
+ * No se escribe NADA en el directorio del usuario.
+ *
+ * NOTA HONESTA: Los scripts .sh no pueden ejecutarse desde memoria (bash
+ * necesita archivos físicos). Si se necesitan, se generan bajo demanda.
  */
 
 import path from 'path';
@@ -19,7 +18,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /*  Utilidades                                                        */
 /* ------------------------------------------------------------------ */
 
-/** Parsea frontmatter YAML simple (solo primer nivel + permission anidado). */
 function parseFrontmatter(content) {
   const m = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!m) return null;
@@ -35,7 +33,6 @@ function parseFrontmatter(content) {
     if (indent === 0 && kv) {
       currentKey = kv[1];
       const val = kv[2].trim();
-      // Si el valor está vacío, preparamos objeto para claves anidadas
       meta[currentKey] = val || {};
     } else if (indent > 0 && currentKey && typeof meta[currentKey] === 'object' && kv) {
       meta[currentKey][kv[1]] = kv[2].trim();
@@ -44,7 +41,6 @@ function parseFrontmatter(content) {
   return { meta, body: m[2] };
 }
 
-/** Lee todos los archivos .md de un directorio y retorna [{name, meta, body}]. */
 function loadMarkdownFiles(dir) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
@@ -72,67 +68,29 @@ function loadMarkdownFiles(dir) {
   return results;
 }
 
-/** Copia recursiva segura (no sobrescribe). */
-function copyRecursive(src, dest, opts = {}) {
-  const stats = fs.statSync(src);
-  if (stats.isDirectory()) {
-    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-    for (const entry of fs.readdirSync(src)) {
-      copyRecursive(path.join(src, entry), path.join(dest, entry), opts);
+/** Carga TODO el contenido de un directorio en un objeto { "ruta/relativa": "contenido" } */
+function loadDirectoryAsMemory(dir, basePath = dir) {
+  const memory = {};
+  if (!fs.existsSync(dir)) return memory;
+
+  function walk(currentDir) {
+    for (const entry of fs.readdirSync(currentDir)) {
+      const full = path.join(currentDir, entry);
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        walk(full);
+      } else {
+        const relPath = path.relative(basePath, full);
+        try {
+          memory[relPath] = fs.readFileSync(full, 'utf8');
+        } catch (e) {
+          // Skip archivos binarios o ilegibles
+        }
+      }
     }
-  } else {
-    if (!fs.existsSync(dest)) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.copyFileSync(src, dest);
-      if (opts.onCopied) opts.onCopied(src, dest);
-    } else {
-      if (opts.onSkipped) opts.onSkipped(src, dest);
-    }
   }
-}
-
-function syncDir(src, dest, result, rootTarget) {
-  if (!fs.existsSync(src)) {
-    result.errors.push(`Source not found: ${src}`);
-    return;
-  }
-  try {
-    copyRecursive(src, dest, {
-      onCopied: (_s, d) => result.copied.push(path.relative(rootTarget, d)),
-      onSkipped: (_s, d) => result.skipped.push(path.relative(rootTarget, d))
-    });
-  } catch (err) {
-    result.errors.push(`Failed to sync ${path.basename(src)}: ${err.message}`);
-  }
-}
-
-function doSync(projectDir, sourceDir) {
-  const targetDir = path.join(projectDir, '.opencode');
-  const result = { copied: [], skipped: [], errors: [] };
-  if (!fs.existsSync(sourceDir)) {
-    result.errors.push(`Source not found: ${sourceDir}`);
-    return result;
-  }
-  for (const dir of ['agents', 'commands', 'context', 'scripts', 'skills']) {
-    syncDir(path.join(sourceDir, dir), path.join(targetDir, dir), result, targetDir);
-  }
-  return result;
-}
-
-function findProjectRoot(startDir) {
-  if (!startDir || !fs.existsSync(startDir)) return null;
-  let dir = path.resolve(startDir);
-  while (true) {
-    if (fs.existsSync(path.join(dir, 'opencode.json'))) return dir;
-    if (fs.existsSync(path.join(dir, '.opencode', 'opencode.json'))) return dir;
-    if (fs.existsSync(path.join(dir, '.opencode', 'opencode.jsonc'))) return dir;
-    if (fs.existsSync(path.join(dir, '.git'))) return dir;
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
+  walk(dir);
+  return memory;
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,26 +99,30 @@ function findProjectRoot(startDir) {
 
 export const PSWDevKitPlugin = async ({ client, directory }) => {
   
-  // ===== RESOLUCIÓN ROBUSTA DE PATHS =====
-  // Cuando OpenCode instala desde git, el .js puede estar en un cache temporal.
-  // Necesitamos detectar dónde están REALMENTE los recursos (agents, commands, etc.)
+  // ===== DETECCIÓN DE ESTRUCTURA =====
+  // El .js puede estar en: .opencode/plugins/ (hermano de agents/) 
+  // o en un cache temporal de OpenCode.
   
   const pluginFileDir = __dirname;
   
-  // Opción A: los recursos están al mismo nivel que plugins/ (estructura repo)
+  // Opción A: estructura repo estándar (.opencode/plugins/ este archivo)
   const siblingOpencodeDir = path.resolve(pluginFileDir, '..');
   
-  // Opción B: los recursos están dos niveles arriba (si el .js está en .opencode/plugins/)
+  // Opción B: cache de git donde todo está más arriba
   const grandparentOpencodeDir = path.resolve(pluginFileDir, '..', '..');
   
-  // Detectar cuál estructura tiene los recursos
+  // Opción C: raíz del repo (para scaffolding/ y docs/)
+  const repoRootSibling = path.resolve(pluginFileDir, '..', '..');
+  const repoRootGrandparent = path.resolve(pluginFileDir, '..', '..', '..');
+  
   let pluginOpencodeDir = null;
-  const candidates = [
+  let repoRoot = null;
+  
+  // Detectar dónde están los recursos principales
+  for (const cand of [
     { dir: siblingOpencodeDir, name: 'sibling' },
     { dir: grandparentOpencodeDir, name: 'grandparent' }
-  ];
-  
-  for (const cand of candidates) {
+  ]) {
     const hasAgents = fs.existsSync(path.join(cand.dir, 'agents'));
     const hasCommands = fs.existsSync(path.join(cand.dir, 'commands'));
     if (hasAgents || hasCommands) {
@@ -168,121 +130,77 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
       break;
     }
   }
+  if (!pluginOpencodeDir) pluginOpencodeDir = siblingOpencodeDir;
   
-  // Fallback: si no detectamos, asumimos sibling
-  if (!pluginOpencodeDir) {
-    pluginOpencodeDir = siblingOpencodeDir;
+  // Detectar raíz del repo (para scaffolding y docs)
+  for (const cand of [
+    { dir: repoRootSibling, name: 'repo-sibling' },
+    { dir: repoRootGrandparent, name: 'repo-grandparent' }
+  ]) {
+    const hasScaffolding = fs.existsSync(path.join(cand.dir, 'scaffolding'));
+    const hasDocs = fs.existsSync(path.join(cand.dir, 'docs'));
+    if (hasScaffolding || hasDocs) {
+      repoRoot = cand.dir;
+      break;
+    }
   }
+  if (!repoRoot) repoRoot = path.resolve(pluginOpencodeDir, '..');
 
+  // Paths principales
   const skillsPath   = path.join(pluginOpencodeDir, 'skills');
   const agentsPath   = path.join(pluginOpencodeDir, 'agents');
   const commandsPath = path.join(pluginOpencodeDir, 'commands');
   const scriptsPath  = path.join(pluginOpencodeDir, 'scripts');
   const contextPath  = path.join(pluginOpencodeDir, 'context', 'enterprise.yaml');
   const hasEnterpriseCtx = fs.existsSync(contextPath);
-  const pluginRoot   = path.resolve(pluginFileDir, '..', '..');
+  
+  // Paths de recursos adicionales
+  const scaffoldingPath = path.join(repoRoot, 'scaffolding');
+  const docsPath      = path.join(repoRoot, 'docs');
 
-  let syncResult = null;
-  let projectRoot = null;
-
-  // Helper para loggear (con try/catch para no romper el plugin)
+  // Helper de logging seguro
   const log = async (level, message, extra = {}) => {
     const payload = { service: 'psw-devkit', level, message, ...extra };
     try {
-      if (client && client.app && client.app.log) {
-        await client.app.log({ body: payload });
-      }
+      if (client?.app?.log) await client.app.log({ body: payload });
     } catch (e) {
-      // Si el log falla, al menos lo mandamos a consola
       console.error(`[psw-devkit] ${level}: ${message}`, extra);
     }
   };
 
-  // ===== RESOLVER PROJECT ROOT =====
-  function resolveProjectRoot() {
-    // PRIORIDAD 1: directory pasado por OpenCode
-    if (directory) {
-      const d = path.resolve(directory);
-      log('info', `Usando directory de OpenCode: ${d}`);
-      return d;
-    }
-    
-    // PRIORIDAD 2: CWD
-    const fromCwd = findProjectRoot(process.cwd());
-    if (fromCwd) {
-      log('info', `Project root desde CWD: ${fromCwd}`);
-      return fromCwd;
-    }
-    
-    // PRIORIDAD 3: desde el plugin hacia arriba buscando .git/package.json
-    const fromPlugin = findProjectRoot(path.resolve(pluginFileDir, '..', '..', '..'));
-    if (fromPlugin) {
-      log('info', `Project root desde plugin: ${fromPlugin}`);
-      return fromPlugin;
-    }
-    
-    log('warn', 'No se encontró project root. Asegúrate de tener opencode.json, package.json o .git');
-    return null;
-  }
-
   return {
     
     /* ================================================================
-       HOOK CONFIG
+       HOOK CONFIG  —  Todo se carga en memoria, ZERO disco
        ================================================================ */
     config: async (config) => {
-      await log('info', '=== PSW DevKit v1.0.4 config hook ===', {
+      await log('info', '=== PSW DevKit v2.0.0-memory ===', {
         plugin_file_dir: pluginFileDir,
         detected_opencode_dir: pluginOpencodeDir,
-        directory_from_opencode: directory || null,
-        cwd: process.cwd()
+        detected_repo_root: repoRoot,
+        directory_from_opencode: directory || null
       });
 
-      // ---- Verificar recursos fuente ----
-      const sourceChecks = {
-        skills_exists: fs.existsSync(skillsPath),
-        agents_exists: fs.existsSync(agentsPath),
-        commands_exists: fs.existsSync(commandsPath),
-        scripts_exists: fs.existsSync(scriptsPath),
-        context_exists: fs.existsSync(contextPath),
-        skills_path: skillsPath,
-        agents_path: agentsPath,
-        commands_path: commandsPath
-      };
-      await log('info', 'Chequeo de fuentes', sourceChecks);
-
-      // ---- 1. Skills (paths) ----
+      // ---- 1. Skills (paths absolutos al cache de git) ----
       config.skills = config.skills || {};
       config.skills.paths = config.skills.paths || [];
+      let skillsRegistered = 0;
       for (const cat of ['dotnet', 'methodology', 'rag', 'utils']) {
         const p = path.join(skillsPath, cat);
         if (fs.existsSync(p) && !config.skills.paths.includes(p)) {
           config.skills.paths.push(p);
-          await log('info', `Skill path registrado: ${p}`);
+          skillsRegistered++;
         }
       }
+      await log('info', `Skills paths registrados: ${skillsRegistered}`);
 
-      // ---- 2. Agents ----
+      // ---- 2. Agents en memoria ----
       config.agent = config.agent || {};
       const agentFiles = loadMarkdownFiles(agentsPath);
-      await log('info', `Archivos .md en agents/: ${agentFiles.length}`);
-      
-      if (agentFiles.length === 0) {
-        await log('warn', 'No se encontraron agents .md. Verifica que la carpeta agents/ exista y tenga frontmatter con "name:"', {
-          agentsPath,
-          agents_exists: fs.existsSync(agentsPath)
-        });
-      }
+      let agentsInjected = 0;
       
       for (const { name, meta, body } of agentFiles) {
-        if (!name) {
-          await log('warn', 'Agent .md sin campo "name", ignorado');
-          continue;
-        }
-        if (config.agent[name]) {
-          await log('info', `Agent "${name}" ya existe en config, skipping`);
-          continue;
-        }
+        if (!name || config.agent[name]) continue;
         
         config.agent[name] = {
           description: meta.description || `Agent ${name}`,
@@ -291,36 +209,18 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
         };
         if (meta.model) config.agent[name].model = meta.model;
         if (meta.temperature) config.agent[name].temperature = parseFloat(meta.temperature);
-        if (meta.permission) {
-          config.agent[name].permission = {};
-          for (const [k, v] of Object.entries(meta.permission)) {
-            config.agent[name].permission[k] = v;
-          }
-        }
-        await log('info', `Agent inyectado: ${name}`);
+        if (meta.permission) config.agent[name].permission = meta.permission;
+        agentsInjected++;
       }
+      await log('info', `Agents inyectados en memoria: ${agentsInjected}`);
 
-      // ---- 3. Commands ----
+      // ---- 3. Commands en memoria ----
       config.command = config.command || {};
       const commandFiles = loadMarkdownFiles(commandsPath);
-      await log('info', `Archivos .md en commands/: ${commandFiles.length}`);
-      
-      if (commandFiles.length === 0) {
-        await log('warn', 'No se encontraron commands .md. Verifica la carpeta commands/.', {
-          commandsPath,
-          commands_exists: fs.existsSync(commandsPath)
-        });
-      }
+      let commandsInjected = 0;
       
       for (const { name, meta, body } of commandFiles) {
-        if (!name) {
-          await log('warn', 'Command .md sin campo "name", ignorado');
-          continue;
-        }
-        if (config.command[name]) {
-          await log('info', `Command /${name} ya existe, skipping`);
-          continue;
-        }
+        if (!name || config.command[name]) continue;
         
         config.command[name] = {
           description: meta.description || `Command /${name}`,
@@ -329,46 +229,61 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
         if (meta.agent) config.command[name].agent = meta.agent;
         if (meta.model) config.command[name].model = meta.model;
         if (meta.subtask) config.command[name].subtask = meta.subtask === 'true' || meta.subtask === true;
-        await log('info', `Command inyectado: /${name}`);
+        commandsInjected++;
+      }
+      await log('info', `Commands inyectados en memoria: ${commandsInjected}`);
+
+      // ---- 4. Scaffolding en memoria ----
+      // Cargamos TODO el contenido de los templates para que agents/commands
+      // puedan usarlo sin tocar el disco del usuario.
+      let scaffoldingMemory = {};
+      if (fs.existsSync(scaffoldingPath)) {
+        scaffoldingMemory = loadDirectoryAsMemory(scaffoldingPath);
+        await log('info', `Scaffolding cargado en memoria: ${Object.keys(scaffoldingMemory).length} archivos`);
+      } else {
+        await log('warn', 'Carpeta scaffolding/ no encontrada en repo');
       }
 
-      // ---- 4. Metadatos ----
+      // ---- 5. Docs en memoria ----
+      let docsMemory = {};
+      if (fs.existsSync(docsPath)) {
+        docsMemory = loadDirectoryAsMemory(docsPath);
+        await log('info', `Docs cargados en memoria: ${Object.keys(docsMemory).length} archivos`);
+      } else {
+        await log('warn', 'Carpeta docs/ no encontrada en repo');
+      }
+
+      // ---- 6. Scripts en memoria (solo lectura, no ejecución) ----
+      // NOTA HONESTA: Los .sh no pueden ejecutarse desde memoria. Los cargamos
+      // como texto para referencia, pero bash necesita archivos físicos.
+      let scriptsMemory = {};
+      if (fs.existsSync(scriptsPath)) {
+        scriptsMemory = loadDirectoryAsMemory(scriptsPath);
+        await log('info', `Scripts cargados en memoria (referencia): ${Object.keys(scriptsMemory).length} archivos`);
+        await log('warn', 'Scripts .sh requieren archivo físico para ejecutarse con bash. Se cargan solo como referencia.');
+      }
+
+      // ---- 7. Metadatos consolidados ----
       config.psw_devkit = {
-        scripts_path: scriptsPath,
-        context_path: contextPath,
-        version: '1.0.4-fixed',
-        agents_injected: agentFiles.length,
-        commands_injected: commandFiles.length,
-        resources_dir: pluginOpencodeDir
+        version: '2.0.0-memory',
+        resources_dir: pluginOpencodeDir,
+        repo_root: repoRoot,
+        agents_injected: agentsInjected,
+        commands_injected: commandsInjected,
+        skills_paths: skillsRegistered,
+        enterprise_context_loaded: hasEnterpriseCtx,
+        scaffolding: scaffoldingMemory,      // ← TODO en memoria
+        docs: docsMemory,                    // ← TODO en memoria
+        scripts: scriptsMemory,              // ← En memoria (solo referencia)
+        scripts_path: scriptsPath,           // ← Ruta física por si se necesita
+        context_path: contextPath            // ← Ruta física del enterprise.yaml
       };
 
-      // ---- 5. Sincronizar archivos al proyecto ----
-      projectRoot = resolveProjectRoot();
-      
-      if (!projectRoot) {
-        await log('error', 'No se pudo determinar project root. Sync omitido.', {
-          hint: 'Crea un opencode.json, package.json o inicializa git en tu proyecto'
-        });
-        syncResult = { copied: [], skipped: [], errors: ['No project root found'] };
-        return;
-      }
-
-      // Evitar sync sobre sí mismo (modo dev)
-      if (path.resolve(projectRoot) === path.resolve(pluginRoot)) {
-        await log('warn', 'Sync omitido: projectRoot === pluginRoot (desarrollo)');
-        syncResult = { copied: [], skipped: [], errors: [], _skippedDev: true };
-        return;
-      }
-
-      await log('info', `Iniciando sync a: ${path.join(projectRoot, '.opencode')}`);
-      syncResult = doSync(projectRoot, pluginOpencodeDir);
-      
-      await log('info', 'Sync completado', {
-        copied: syncResult.copied.length,
-        skipped: syncResult.skipped.length,
-        errors: syncResult.errors.length,
-        copied_files: syncResult.copied.slice(0, 20),
-        error_details: syncResult.errors
+      await log('info', 'PSW DevKit cargado completamente en memoria', {
+        total_agents: agentsInjected,
+        total_commands: commandsInjected,
+        scaffolding_templates: Object.keys(scaffoldingMemory).length > 0 ? 'disponibles' : 'no encontrados',
+        docs_available: Object.keys(docsMemory).length > 0 ? 'disponibles' : 'no encontrados'
       });
     },
 
@@ -376,16 +291,14 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
        HOOK SESSION.CREATED
        ================================================================ */
     'session.created': async ({ client }) => {
-      await log('info', 'PSW DevKit session.created', {
+      await log('info', 'PSW DevKit v2.0.0 session activa', {
         enterprise_context_loaded: hasEnterpriseCtx,
-        project_root: projectRoot,
-        sync_copied: syncResult ? syncResult.copied.length : 'N/A',
-        sync_errors: syncResult ? syncResult.errors.length : 'N/A'
+        mode: 'zero-copy (todo en memoria)'
       });
     },
 
     /* ================================================================
-       Inyeccion de contexto empresarial
+       Inyección de contexto empresarial
        ================================================================ */
     'experimental.chat.messages.transform': async (_input, output) => {
       if (!hasEnterpriseCtx || !output.messages || !output.messages.length) return;
@@ -398,7 +311,6 @@ export const PSWDevKitPlugin = async ({ client, directory }) => {
         const ctx = fs.readFileSync(contextPath, 'utf8');
         const injection = `[PSW_DEVKIT_CONTEXT]\nEste es el contexto empresarial del equipo PSW. DEBES seguir estas reglas:\n\n${ctx}\n\n[FIN CONTEXT]\n\n`;
         
-        // Crear nuevo array inmutable-friendly
         const ref = firstUser.parts[0];
         firstUser.parts = [{ ...ref, type: 'text', text: injection }, ...firstUser.parts];
       } catch (e) {

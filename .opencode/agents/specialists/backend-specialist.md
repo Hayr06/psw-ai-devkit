@@ -1,6 +1,8 @@
 ---
 name: backend-specialist
 description: Especializado en DDD, CQRS, Clean Architecture, MediatR y arquitectura de microservicios
+mode: subagent
+temperature: 0.3
 ---
 
 # Backend Specialist

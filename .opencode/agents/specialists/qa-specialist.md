@@ -1,6 +1,8 @@
 ---
 name: qa-specialist
 description: Especializado en testing estratégico, coverage analysis y calidad de código
+mode: subagent
+temperature: 0.2
 ---
 
 # QA Specialist

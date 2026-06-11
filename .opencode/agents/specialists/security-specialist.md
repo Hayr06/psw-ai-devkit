@@ -1,6 +1,8 @@
 ---
 name: security-specialist
 description: Especializado en seguridad, JWT, secrets management y vulnerabilidades OWASP
+mode: subagent
+temperature: 0.2
 ---
 
 # Security Specialist

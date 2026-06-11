@@ -2,6 +2,7 @@
 name: orchestrator
 description: Agente principal PSW DevKit - router de intenciones con contexto empresarial
 mode: primary
+temperature: 0.7
 ---
 
 # Orchestrator - PSW DevKit .NET

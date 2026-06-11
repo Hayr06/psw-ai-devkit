@@ -1,6 +1,8 @@
 ---
 name: devops-specialist
 description: Especializado en Docker, CI/CD, Azure, Kubernetes y automatización de infraestructura
+mode: subagent
+temperature: 0.3
 ---
 
 # DevOps Specialist
