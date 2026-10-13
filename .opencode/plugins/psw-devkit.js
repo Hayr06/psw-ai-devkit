@@ -431,6 +431,7 @@ export const PSWDevKitPlugin = async ({ client, project, directory, $ }) => {
           { collisions }
         );
       }
+      await log('info', `Agents inyectados en memoria: ${agentsInjected}`);
 
       // ---- 3. Commands en memoria ----
       config.command = config.command || {};
