@@ -45,6 +45,36 @@ function Invoke-PswHttp {
     }
 }
 
+function Get-PswCommandPath {
+    param([Parameter(Mandatory)][string]$Command)
+    $c = Get-Command $Command -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return [string]$c.Source }
+    return ''
+}
+
+# The policy a new PowerShell window will have: install.ps1 and doctor.ps1 run with -ExecutionPolicy Bypass
+# (Process scope), but the student later types `opencode`, which resolves to npm's opencode.ps1.
+function Get-PswScriptPolicy {
+    foreach ($scope in 'MachinePolicy', 'UserPolicy', 'CurrentUser', 'LocalMachine') {
+        $p = [string](Get-ExecutionPolicy -Scope $scope)
+        if ($p -ne 'Undefined') { return $p }
+    }
+    return 'Undefined'
+}
+
+# Windows PowerShell follows the system proxy; OpenCode (Bun) and npm only follow HTTPS_PROXY.
+function Get-PswProxyStatus {
+    param([Parameter(Mandatory)][string]$Uri)
+    $system = ''
+    try {
+        $u = [Uri]$Uri
+        $p = [Net.WebRequest]::GetSystemWebProxy().GetProxy($u)
+        if ($p -and $p.AbsoluteUri -ne $u.AbsoluteUri) { $system = $p.AbsoluteUri.TrimEnd('/') }
+    } catch { $system = '' }
+    $configured = @($env:HTTPS_PROXY, [Environment]::GetEnvironmentVariable('HTTPS_PROXY', 'User')) | Where-Object { $_ } | Select-Object -First 1
+    return [pscustomobject]@{ System = $system; Configured = [string]$configured }
+}
+
 function Test-PswNodeVersion {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Version)
@@ -78,12 +108,19 @@ function Get-PswToolChecks {
 
     $oc = Get-PswCommandVersion -Command 'opencode' -Arguments @('--version')
     if ($oc -eq $script:OpenCodeVersion) { $checks += New-PswCheck "OpenCode $script:OpenCodeVersion" 'OK' $oc }
-    elseif ($oc) { $checks += New-PswCheck "OpenCode $script:OpenCodeVersion" 'FALTA' "versión $oc" "Ejecuta: npm install -g opencode-ai@$script:OpenCodeVersion" }
+    elseif ($oc) {
+        $where = Get-PswCommandPath -Command 'opencode'
+        $checks += New-PswCheck "OpenCode $script:OpenCodeVersion" 'FALTA' "versión $oc en $where" "Ejecuta: npm install -g opencode-ai@$script:OpenCodeVersion. Si ya lo hiciste, ese otro OpenCode va antes en el PATH: desinstálalo o quítalo del PATH."
+    }
     else { $checks += New-PswCheck "OpenCode $script:OpenCodeVersion" 'FALTA' 'OpenCode no está instalado' "Ejecuta: npm install -g opencode-ai@$script:OpenCodeVersion" }
 
     $localdb = Get-PswCommandVersion -Command 'sqllocaldb' -Arguments @('info')
     if ($localdb) { $checks += New-PswCheck 'SQL Server LocalDB' 'OK' (($localdb -split "`n")[0]) }
     else { $checks += New-PswCheck 'SQL Server LocalDB' 'FALTA' 'LocalDB no está instalado' 'Vuelve a correr install.ps1 o instala SQL Server Express con LocalDB' }
+
+    $policy = Get-PswScriptPolicy
+    if ($policy -in 'RemoteSigned', 'Unrestricted', 'Bypass') { $checks += New-PswCheck 'Política de scripts' 'OK' $policy }
+    else { $checks += New-PswCheck 'Política de scripts' 'FALTA' "PowerShell está en $policy y no dejará abrir opencode" 'Ejecuta: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned (o abre OpenCode con opencode.cmd)' }
 
     return $checks
 }
@@ -91,8 +128,11 @@ function Get-PswToolChecks {
 function Get-PswGatewayChecks([string]$BaseUrl, [string]$Key) {
     $base = $BaseUrl.TrimEnd('/')
     $health = Invoke-PswHttp -Method 'GET' -Uri "$base/health/liveliness"
-    if ($health.Status -ne 200) {
-        $why = if ($health.Status -eq 0) { 'no hubo respuesta' } else { "respondió $($health.Status)" }
+    # A school block page or captive portal can answer 200 too; only LiteLLM says it is alive.
+    if ($health.Status -ne 200 -or $health.Body -notmatch 'alive') {
+        $why = if ($health.Status -eq 0) { 'no hubo respuesta' }
+               elseif ($health.Status -eq 200) { 'respondió otra cosa; puede ser una página de la red de la escuela' }
+               else { "respondió $($health.Status)" }
         return @(
             (New-PswCheck 'Puerta de enlace' 'PENDIENTE' "no se llega a $base ($why)" 'Si el organizador ya la publicó, la red de la escuela la está bloqueando: avísale.'),
             (New-PswCheck 'Llave' 'PENDIENTE' 'se revisa cuando responda la puerta de enlace'),
@@ -140,7 +180,14 @@ function Invoke-PswDoctor {
         if (-not $Key) { $Key = [Environment]::GetEnvironmentVariable('PSW_LLM_KEY', 'User') }
     }
     if ($Key) { $Key = $Key.Trim() }
-    return @(Get-PswToolChecks) + @(Get-PswGatewayChecks -BaseUrl $BaseUrl -Key $Key)
+    return @(Get-PswToolChecks) + @(Get-PswGatewayChecks -BaseUrl $BaseUrl -Key $Key) + @(Get-PswProxyChecks -BaseUrl $BaseUrl)
+}
+
+function Get-PswProxyChecks([string]$BaseUrl) {
+    $proxy = Get-PswProxyStatus -Uri $BaseUrl
+    if (-not $proxy.System) { return @() }
+    if ($proxy.Configured) { return @(New-PswCheck 'Proxy' 'OK' "HTTPS_PROXY = $($proxy.Configured)") }
+    return @(New-PswCheck 'Proxy' 'PENDIENTE' "la red usa el proxy $($proxy.System) y OpenCode no lo toma solo" "Ejecuta: [Environment]::SetEnvironmentVariable('HTTPS_PROXY', '$($proxy.System)', 'User') y abre una ventana nueva de PowerShell.")
 }
 
 Export-ModuleMember -Function Get-PswCommandVersion, Invoke-PswHttp, Test-PswNodeVersion, Invoke-PswDoctor

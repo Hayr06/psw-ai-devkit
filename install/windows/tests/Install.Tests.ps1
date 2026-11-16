@@ -5,6 +5,20 @@ $root = Split-Path -Parent $here
 
 $templatePath = Join-Path $root 'opencode.semillero.jsonc'
 
+Describe 'Invoke-PswNativeStep' {
+    It 'returns only $true when the command exits 0, so its output never leaks into the exit code' {
+        $r = @(Invoke-PswNativeStep -Name 'Prueba' -Command { cmd /c 'echo salida de winget' })
+        $r.Count | Should Be 1
+        $r[0] | Should Be $true
+    }
+
+    It 'returns only $false when the command fails' {
+        $r = @(Invoke-PswNativeStep -Name 'Prueba' -Command { cmd /c 'echo salida & exit 3' })
+        $r.Count | Should Be 1
+        $r[0] | Should Be $false
+    }
+}
+
 Describe 'Write-PswOpenCodeConfig' {
     $dir = Join-Path $env:TEMP ("psw-install-test-" + [guid]::NewGuid().ToString('N'))
 

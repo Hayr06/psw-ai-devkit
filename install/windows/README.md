@@ -41,5 +41,8 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\psw-install\doctor.ps
 | `[FALTA]` | Sigue la indicación de la línea `->`. Si dice volver a correr `install.ps1`, hazlo en una ventana nueva de PowerShell. |
 | `[PENDIENTE] Puerta de enlace` | El modelo no responde desde tu red. Avísale al organizador. |
 | `[PENDIENTE] Modelo responde` (429) | El modelo está ocupado. Espera un minuto y vuelve a correr el diagnóstico. |
+| `[PENDIENTE] Proxy` | Tu red sale por un proxy. Corre el comando de la línea `->` para que OpenCode también lo use. |
+
+`[FALTA] Política de scripts` significa que PowerShell no dejará abrir `opencode` en una ventana nueva, aunque el diagnóstico sí corra.
 
 Cuando todo esté en `[OK]`, cierra PowerShell, abre una ventana nueva y escribe `opencode`.

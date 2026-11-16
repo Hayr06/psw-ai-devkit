@@ -25,6 +25,9 @@ function Set-AllToolsPresent {
             'sqllocaldb' { 'MSSQLLocalDB' }
         }
     }
+    Mock -ModuleName PswDoctor Get-PswScriptPolicy { 'RemoteSigned' }
+    Mock -ModuleName PswDoctor Get-PswCommandPath { "C:\Users\alumno\AppData\Roaming\npm\$Command.cmd" }
+    Mock -ModuleName PswDoctor Get-PswProxyStatus { [pscustomobject]@{ System = ''; Configured = '' } }
 }
 
 function Set-GatewayHealthy {
@@ -122,7 +125,7 @@ Describe 'Invoke-PswDoctor: gateway, key and model' {
 
     It 'flags a rejected key (401) as FALTA' {
         Mock -ModuleName PswDoctor Invoke-PswHttp {
-            if ($Uri -like '*/health/liveliness') { return (New-HttpResult 200) }
+            if ($Uri -like '*/health/liveliness') { return (New-HttpResult 200 '"I''m alive!"') }
             New-HttpResult 401
         }
         $c = Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Llave'
@@ -141,6 +144,59 @@ Describe 'Invoke-PswDoctor: gateway, key and model' {
         Set-GatewayHealthy
         Invoke-PswDoctor -BaseUrl $BaseUrl -Key "  abc `r`n" | Out-Null
         Assert-MockCalled -ModuleName PswDoctor Invoke-PswHttp -ParameterFilter { $Uri -like '*/v1/models' -and $Key -eq 'abc' } -Times 1 -Exactly -Scope It
+    }
+}
+
+Describe 'Invoke-PswDoctor: what the student hits after the doctor passes' {
+    BeforeEach { Set-AllToolsPresent; Set-GatewayHealthy }
+
+    It 'flags the script policy as FALTA when PowerShell would block opencode.ps1 (<policy>)' -TestCases @(@{ policy = 'Restricted' }, @{ policy = 'AllSigned' }, @{ policy = 'Undefined' }) {
+        param($policy)
+        $global:testPolicy = $policy
+        Mock -ModuleName PswDoctor Get-PswScriptPolicy { $global:testPolicy }
+        $c = Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Política de scripts'
+        $c.State | Should Be 'FALTA'
+        $c.Fix | Should Match 'Set-ExecutionPolicy -Scope CurrentUser RemoteSigned'
+    }
+
+    It 'accepts the script policy <policy>' -TestCases @(@{ policy = 'RemoteSigned' }, @{ policy = 'Unrestricted' }, @{ policy = 'Bypass' }) {
+        param($policy)
+        $global:testPolicy = $policy
+        Mock -ModuleName PswDoctor Get-PswScriptPolicy { $global:testPolicy }
+        (Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Política de scripts').State | Should Be 'OK'
+    }
+
+    It 'shows which OpenCode answered when the version is wrong' {
+        Mock -ModuleName PswDoctor Get-PswCommandVersion { 'opencode v2.2.7' } -ParameterFilter { $Command -eq 'opencode' }
+        Mock -ModuleName PswDoctor Get-PswCommandPath { 'C:\tools\bin\opencode.ps1' } -ParameterFilter { $Command -eq 'opencode' }
+        $c = Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'OpenCode 1.19.0'
+        $c.State | Should Be 'FALTA'
+        $c.Detail | Should Match ([regex]::Escape('C:\tools\bin\opencode.ps1'))
+        $c.Fix | Should Match 'PATH'
+    }
+
+    It 'marks the gateway PENDIENTE when health answers 200 with something that is not the gateway' {
+        Mock -ModuleName PswDoctor Invoke-PswHttp { New-HttpResult 200 '<html>Portal de la red</html>' }
+        $r = Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc'
+        (Get-Check $r 'Puerta de enlace').State | Should Be 'PENDIENTE'
+        (Get-Check $r 'Llave').State | Should Be 'PENDIENTE'
+    }
+
+    It 'warns when the network uses a proxy that OpenCode will not pick up' {
+        Mock -ModuleName PswDoctor Get-PswProxyStatus { [pscustomobject]@{ System = 'http://proxy.escuela:8080'; Configured = '' } }
+        $c = Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Proxy'
+        $c.State | Should Be 'PENDIENTE'
+        $c.Detail | Should Match ([regex]::Escape('http://proxy.escuela:8080'))
+        $c.Fix | Should Match 'HTTPS_PROXY'
+    }
+
+    It 'accepts a proxy that is already set in HTTPS_PROXY' {
+        Mock -ModuleName PswDoctor Get-PswProxyStatus { [pscustomobject]@{ System = 'http://proxy.escuela:8080'; Configured = 'http://proxy.escuela:8080' } }
+        (Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Proxy').State | Should Be 'OK'
+    }
+
+    It 'adds no proxy check when the network has no proxy' {
+        @(Get-Check (Invoke-PswDoctor -BaseUrl $BaseUrl -Key 'abc') 'Proxy' | Where-Object { $_ }).Count | Should Be 0
     }
 }
 

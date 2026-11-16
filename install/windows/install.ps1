@@ -82,6 +82,18 @@ function Read-PswKey {
 
 function Write-PswStep([string]$text) { Write-Host "==> $text" -ForegroundColor Cyan }
 
+# Runs winget or npm with its output on screen (not in the function's return value) and reports failure in Spanish.
+function Invoke-PswNativeStep {
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][scriptblock]$Command)
+    $global:LASTEXITCODE = 0
+    & $Command | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "No se pudo instalar $Name (código $LASTEXITCODE). El diagnóstico del final dirá qué falta." -ForegroundColor Yellow
+        return $false
+    }
+    return $true
+}
+
 function Invoke-PswInstall {
     param([string]$Key, [switch]$CheckOnly)
 
@@ -104,7 +116,7 @@ function Invoke-PswInstall {
         if ($p.Action -like 'winget *') {
             $id = $p.Action -replace '^winget install --id (\S+) -e$', '$1'
             Write-PswStep "Instalando $($p.Name)"
-            winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements
+            [void](Invoke-PswNativeStep -Name $p.Name -Command { winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements })
         }
     }
     Update-PswSessionPath
@@ -116,8 +128,12 @@ function Invoke-PswInstall {
 
     if (-not ($plan | Where-Object { $_.Name -eq 'OpenCode' }).Present) {
         Write-PswStep "Instalando OpenCode ($script:OpenCodePackage)"
-        npm install -g $script:OpenCodePackage
-        Update-PswSessionPath
+        if (Get-Command npm -ErrorAction SilentlyContinue) {
+            [void](Invoke-PswNativeStep -Name 'OpenCode' -Command { npm install -g $script:OpenCodePackage })
+            Update-PswSessionPath
+        } else {
+            Write-Host 'No se instaló OpenCode porque falta Node (npm). Resuelve Node y vuelve a correr install.ps1.' -ForegroundColor Yellow
+        }
     }
 
     Write-PswStep 'Configurando OpenCode'
