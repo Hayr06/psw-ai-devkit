@@ -12,6 +12,13 @@ $d = "$env:USERPROFILE\psw-install"; New-Item -ItemType Directory -Force $d | Ou
 "PswDoctor.psm1","doctor.ps1","install.ps1","opencode.semillero.jsonc" | ForEach-Object {
   Invoke-WebRequest "https://raw.githubusercontent.com/Hayr06/psw-ai-devkit/main/install/windows/$_" -OutFile "$d\$_" -UseBasicParsing }
 ```
+### 1.1 Variable de entorno
+
+```powershell
+$k = Read-Host "Pega tu llave"
+[Environment]::SetEnvironmentVariable(
+  "PSW_LLM_KEY", $k.Trim(), "User")
+```
 
 Si la red no deja descargar de GitHub, el organizador te da la carpeta `install\windows` en una USB; cópiala a
 `%USERPROFILE%\psw-install`.
