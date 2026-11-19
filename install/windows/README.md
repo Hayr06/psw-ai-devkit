@@ -53,3 +53,22 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\psw-install\doctor.ps
 `[FALTA] Política de scripts` significa que PowerShell no dejará abrir `opencode` en una ventana nueva, aunque el diagnóstico sí corra.
 
 Cuando todo esté en `[OK]`, cierra PowerShell, abre una ventana nueva y escribe `opencode`.
+
+# 4. Check SQL Server (LocalDB)
+## 1. Abrir una ventana nueva de PowerShell y escribir:
+
+```powershell
+sqllocaldb info
+```
+
+Si responde MSSQLLocalDB, ya está instalado; era la causa 1 y no hay que hacer nada más.
+
+## 2. Si no responde
+Abrir PowerShell como administrador, entrar a la carpeta del instalador y correr solo la parte de LocalDB:
+
+```powershell
+cd "$env:USERPROFILE\psw-install"
+. .\install.ps1 -LoadOnly; Install-PswLocalDb
+```
+
+Que no corran el install.ps1 completo como administrador. Si la cuenta de administrador es otra, la llave y OpenCode quedarían guardados en el usuario equivocado.
